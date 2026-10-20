@@ -4,33 +4,43 @@ const admin = require("firebase-admin");
 const app = express();
 app.use(express.json());
 
-let serviceAccount;
+// Firebase Admin initialization with safety fallback
 try {
-  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-  } else {
-    console.error("FIREBASE_SERVICE_ACCOUNT environment variable is missing!");
-  }
-} catch (err) {
-  console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT JSON:", err.message);
-}
+  const envKey = process.env.FIREBASE_SERVICE_ACCOUNT;
 
-if (serviceAccount) {
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-    databaseURL: "https://hunde-family-default-rtdb.firebaseio.com"
-  });
-  console.log("Firebase Admin initialized successfully.");
+  if (envKey) {
+    let serviceAccount;
+    // Handle string or base64 if needed
+    if (typeof envKey === "string") {
+      serviceAccount = JSON.parse(envKey);
+    } else {
+      serviceAccount = envKey;
+    }
+
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+      databaseURL: "https://hunde-family-default-rtdb.firebaseio.com"
+    });
+    console.log("Firebase Admin initialized successfully!");
+  } else {
+    console.error("CRITICAL ERROR: FIREBASE_SERVICE_ACCOUNT environment variable is NOT set on Render!");
+  }
+} catch (error) {
+  console.error("Failed to initialize Firebase Admin:", error.message);
 }
 
 app.get("/", (req, res) => {
-  res.send("Hunde Family Call Backend is running online!");
+  res.send("Hunde Family Backend is live and ready!");
 });
 
 app.post("/send-call", async (req, res) => {
   const { receiverId, callerName, channelName, callType, callId } = req.body;
 
   try {
+    if (!admin.apps.length) {
+      return res.status(500).json({ error: "Firebase Admin is not initialized properly on server." });
+    }
+
     const userSnapshot = await admin.database().ref(`/Users/${receiverId}/fcmToken`).once("value");
     const receiverFcmToken = userSnapshot.val();
 
