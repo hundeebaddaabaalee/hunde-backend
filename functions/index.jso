@@ -1,0 +1,58 @@
+const { onValueCreated } = require("firebase-functions/v2/database");
+const logger = require("firebase-functions/logger");
+const admin = require("firebase-admin");
+
+admin.initializeApp();
+
+// Realtime Database irratti '/Calls/{callId}' yeroo uumamu
+exports.sendCallNotification = onValueCreated("/Calls/{callId}", async (event) => {
+    const callData = event.data.val();
+    const callId = event.params.callId;
+
+    if (!callData) {
+        logger.info("Call data empty dha.");
+        return;
+    }
+
+    const receiverId = callData.receiverId;
+    const callerName = callData.callerName || "Hunde Family User";
+    const channelName = callData.channelName;
+    const callType = callData.callType || "AUDIO";
+
+    try {
+        // 1. Database irraa FCM Token nama B (Receiver) fiduu
+        const userSnapshot = await admin.database().ref(`/Users/${receiverId}/fcmToken`).once("value");
+        const receiverFcmToken = userSnapshot.val();
+
+        if (!receiverFcmToken) {
+            logger.info(`Receiver ${receiverId} tiif FCM Token hin argamne.`);
+            return;
+        }
+
+        // 2. FCM v1 Data-only Payload High Priority Ijaaruu
+        const message = {
+            token: receiverFcmToken,
+            android: {
+                priority: "high",
+                ttl: 30 * 1000, // Sakandii 30 qofa jiraata
+            },
+            data: {
+                type: "CALL",
+                callId: String(callId),
+                channelName: String(channelName),
+                callerName: String(callerName),
+                receiverId: String(receiverId),
+                callType: String(callType),
+            },
+        };
+
+        // 3. Notification B tiif ergamuu
+        const response = await admin.messaging().send(message);
+        logger.info("Call notification milka'inaan ergame:", response);
+
+    } catch (error) {
+        logger.error("Error sending call notification:", error);
+    }
+});
++
++

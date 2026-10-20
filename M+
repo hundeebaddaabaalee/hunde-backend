@@ -1,0 +1,58 @@
+const 	express = require("express");
+const admin = require("firebase-admin");
+
+const app = express();
+app.use(express.json());
+
+		// Firebase Service Account Credentials (Environment Variable irraa)
+	const servi
+	ceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+
+	admin.initializeApp({
+	  credential: admin.credential.cert(serviceAccount),
+	  databaseURL: "https://hunde-family-default-rtdb.firebaseio.com" // URL Realtime Database keetiin jijjiiri
+	});
+
+	// Endpoint waamicha (call notification) ergu
+	app.post("/send-call", async (req, req_res) => {
+	    const { receiverId, callerName, channelName, callType, callId } = req.body;
+
+	    try {
+	        const userSnapshot = await admin.database().ref(`/Users/${receiverId}/fcmToken`).once("value");
+	        const receiverFcmToken = userSnapshot.val();
+
+	        if (!receiverFcmToken) {
+	            return req_res.status(404).json({ error: "Receiver FCM token not found" });
+	        }
+
+	        const message = {
+	            token: receiverFcmToken,
+	            android: {
+	                priority: "high",
+	                ttl: 30 * 1000,
+	            },
+	            data: {
+	                type: "CALL",
+	                callId: String(callId),
+	                channelName: String(channelName),
+	                callerName: String(callerName),
+	                receiverId: String(receiverId),
+	                callType: String(callType || "AUDIO"),
+	            },
+	        };
+
+	        const response = await admin.messaging().send(message);
+	        return req_res.status(200).json({ success: true, response });
+	    } catch (error) {
+	        return req_res.status(500).json({ error: error.message });
+	    }
+	});
+
+	const PORT = process.env.PORT || 3000;
+	app.listen(PORT, () => {
+	    console.log(`Server running on port ${PORT}`);
+	});
+	
+
++
++
