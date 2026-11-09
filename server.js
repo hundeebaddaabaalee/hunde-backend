@@ -12,7 +12,7 @@ const { getMessaging } =
 
 // Agora Access Token Builder import gochuu
 const { RtcTokenBuilder, RtcRole } = 
-  require("agora-access-token");
+  require("agora-token");
 
 const app = express();
 
