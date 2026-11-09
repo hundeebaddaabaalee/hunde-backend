@@ -1,4 +1,3 @@
-
 const express = require("express");
 
 // Firebase Admin SDK v14 modular imports
@@ -10,6 +9,10 @@ const { getDatabase } =
 
 const { getMessaging } =
   require("firebase-admin/messaging");
+
+// Agora Access Token Builder import gochuu
+const { RtcTokenBuilder, RtcRole } = 
+  require("agora-access-token");
 
 const app = express();
 
@@ -31,8 +34,6 @@ try {
   }
 
   let serviceAccount;
-
-  // Support JSON or Base64 encoded JSON
   const trimmedKey = envKey.trim();
 
   try {
@@ -51,7 +52,6 @@ try {
     );
   }
 
-  // Validate required service account fields
   if (
     !serviceAccount.project_id ||
     !serviceAccount.client_email ||
@@ -62,7 +62,6 @@ try {
     );
   }
 
-  // Initialize only once
   if (getApps().length === 0) {
     initializeApp({
       credential: cert(serviceAccount),
@@ -72,14 +71,10 @@ try {
   }
 
   firebaseReady = true;
-
-  console.log(
-    "Firebase Admin initialized successfully!"
-  );
+  console.log("Firebase Admin initialized successfully!");
 
 } catch (error) {
   firebaseReady = false;
-
   console.error(
     "Failed to initialize Firebase Admin:",
     error.message
@@ -104,12 +99,66 @@ app.get("/health", (req, res) => {
 });
 
 // ==========================================
-// 3. SEND INCOMING CALL NOTIFICATION
+// 3. GENERATE AGORA TOKEN ENDPOINT
+// ==========================================
+
+app.post("/generate-agora-token", (req, res) => {
+  const { channelName, uid } = req.body || {};
+
+  if (!channelName) {
+    return res.status(400).json({
+      success: false,
+      error: "Channel name is required."
+    });
+  }
+
+  const appId = process.env.AGORA_APP_ID;
+  const appCertificate = process.env.AGORA_APP_CERTIFICATE;
+
+  if (!appId || !appCertificate) {
+    return res.status(500).json({
+      success: false,
+      error: "Agora credentials are not configured on the server."
+    });
+  }
+
+  try {
+    const intUid = uid ? parseInt(uid, 10) : 0;
+    const role = RtcRole.PUBLISHER;
+    
+    // Token sa'atii 1 (3600 seconds) akka turu godhamee qophaa'a
+    const expirationTimeInSeconds = 3600;
+    const currentTimestamp = Math.floor(Date.now() / 1000);
+    const privilegeExpiredTs = currentTimestamp + expirationTimeInSeconds;
+
+    const token = RtcTokenBuilder.buildTokenWithUid(
+      appId,
+      appCertificate,
+      channelName,
+      intUid,
+      role,
+      privilegeExpiredTs
+    );
+
+    return res.status(200).json({
+      success: true,
+      token: token
+    });
+
+  } catch (error) {
+    console.error("Generate Agora token error:", error.message);
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ==========================================
+// 4. SEND INCOMING CALL NOTIFICATION
 // ==========================================
 
 app.post("/send-call", async (req, res) => {
-
-  // Check Firebase initialization
   if (!firebaseReady || getApps().length === 0) {
     return res.status(503).json({
       success: false,
@@ -125,12 +174,7 @@ app.post("/send-call", async (req, res) => {
     callId
   } = req.body || {};
 
-  // Validate required information
-  if (
-    !receiverId ||
-    !channelName ||
-    !callId
-  ) {
+  if (!receiverId || !channelName || !callId) {
     return res.status(400).json({
       success: false,
       error: "Missing required call information."
@@ -138,58 +182,36 @@ app.post("/send-call", async (req, res) => {
   }
 
   try {
-
-    // Get receiver FCM token from Firebase Database
     const userSnapshot = await getDatabase()
       .ref(`/Users/${receiverId}/fcmToken`)
       .once("value");
 
     const receiverFcmToken = userSnapshot.val();
 
-    if (
-      !receiverFcmToken ||
-      typeof receiverFcmToken !== "string"
-    ) {
-      console.log(
-        "Receiver FCM token not found."
-      );
-
+    if (!receiverFcmToken || typeof receiverFcmToken !== "string") {
       return res.status(404).json({
         success: false,
         error: "Receiver FCM token not found."
       });
     }
 
-    // Prepare Firebase Cloud Messaging notification
     const message = {
       token: receiverFcmToken,
-
       android: {
         priority: "high",
         ttl: 30 * 1000
       },
-
       data: {
         type: "CALL",
         callId: String(callId),
         channelName: String(channelName),
-        callerName: String(
-          callerName || "Hunde Family User"
-        ),
+        callerName: String(callerName || "Hunde Family User"),
         receiverId: String(receiverId),
-        callType: String(
-          callType || "AUDIO"
-        )
+        callType: String(callType || "AUDIO")
       }
     };
 
-    // Send notification
     const response = await getMessaging().send(message);
-
-    console.log(
-      "Call notification sent successfully:",
-      response
-    );
 
     return res.status(200).json({
       success: true,
@@ -198,33 +220,22 @@ app.post("/send-call", async (req, res) => {
     });
 
   } catch (error) {
-
-    console.error(
-      "Send call notification error:",
-      error.code || "",
-      error.message
-    );
-
+    console.error("Send call notification error:", error.message);
     return res.status(500).json({
       success: false,
-      error: error.message,
-      errorCode: error.code || "UNKNOWN_ERROR"
+      error: error.message
     });
   }
 });
 
 // ==========================================
-// 4. START SERVER
+// 5. START SERVER
 // ==========================================
 
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log(
-    `Hunde Family Backend running on port ${PORT}`
-  );
-
-  console.log(
-    `Firebase status: ${firebaseReady ? "READY" : "NOT READY"}`
-  );
+  console.log(`Hunde Family Backend running on port ${PORT}`);
+  console.log(`Firebase status: ${firebaseReady ? "READY" : "NOT READY"}`);
 });
+  
