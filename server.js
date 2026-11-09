@@ -105,10 +105,14 @@ app.get("/health", (req, res) => {
 app.post("/generate-agora-token", (req, res) => {
   const { channelName, uid } = req.body || {};
 
-  if (!channelName) {
+  if (
+    typeof channelName !== "string" ||
+    !channelName.trim() ||
+    Buffer.byteLength(channelName, "utf8") >= 64
+  ) {
     return res.status(400).json({
       success: false,
-      error: "Channel name is required."
+      error: "Valid channel name is required."
     });
   }
 
@@ -118,18 +122,33 @@ app.post("/generate-agora-token", (req, res) => {
   if (!appId || !appCertificate) {
     return res.status(500).json({
       success: false,
-      error: "Agora credentials are not configured on the server."
+      error: "Agora credentials are not configured."
     });
   }
 
   try {
-    const intUid = uid ? parseInt(uid, 10) : 0;
+    const intUid = uid === undefined ? 0 : Number(uid);
+
+    if (
+      !Number.isInteger(intUid) ||
+      intUid < 0 ||
+      intUid > 2147483647
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid UID."
+      });
+    }
+
     const role = RtcRole.PUBLISHER;
-    
-    // Token sa'atii 1 (3600 seconds) akka turu godhamee qophaa'a
     const expirationTimeInSeconds = 3600;
     const currentTimestamp = Math.floor(Date.now() / 1000);
-    const privilegeExpiredTs = currentTimestamp + expirationTimeInSeconds;
+
+    const tokenExpireTs =
+      currentTimestamp + expirationTimeInSeconds;
+
+    const privilegeExpiredTs =
+      currentTimestamp + expirationTimeInSeconds;
 
     const token = RtcTokenBuilder.buildTokenWithUid(
       appId,
@@ -137,19 +156,24 @@ app.post("/generate-agora-token", (req, res) => {
       channelName,
       intUid,
       role,
+      tokenExpireTs,
       privilegeExpiredTs
     );
 
     return res.status(200).json({
       success: true,
-      token: token
+      token: token,
+      channelName: channelName,
+      uid: intUid,
+      expiresAt: tokenExpireTs
     });
 
   } catch (error) {
     console.error("Generate Agora token error:", error.message);
+
     return res.status(500).json({
       success: false,
-      error: error.message
+      error: "Token generation failed."
     });
   }
 });
